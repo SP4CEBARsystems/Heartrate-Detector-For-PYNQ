@@ -144,7 +144,7 @@ void sensorGraph( display_t *display, int *x, float measurement, float slope, fl
   // uint16_t actualTop = bottom-top;
   uint16_t range = bottom - top;
   int pulse = slope>threshold;
-  displayDrawFillRect ( display, *x, top, *x, bottom, pulseWasDetected ? rgb_conv(0,127,0) : RGB_BLACK );
+  displayDrawFillRect ( display, *x, top, *x, bottom, pulseWasDetected ? rgb_conv(0,191,0) : RGB_BLACK );
   float slopeFactor, measurementFactor;
 
   if (get_switch_state( SWITCH0 )){
