@@ -27,10 +27,16 @@ int BEATLED = 0;
 int graphPosition = 0;
 // float averagingSizeExponent = 1;
 int averagingSize = 5000;
-float threshold = .0015;
+// float threshold = .0015;
+float threshold = .03;
+
+int bpmTextShown = 0;
 
 
-  int ledstate = 0;
+// int ledstate = 0;
+
+// float thresholdAdjustment = 0.00001;
+float thresholdAdjustment = 0.0001;
 
 const int calibrateThresholdL = BUTTON0;
 const int calibrateThresholdH = BUTTON1;
@@ -141,8 +147,8 @@ void sensorGraph( display_t *display, int *x, float measurement, float slope, fl
     slopeFactor = 100 * range/10;
     measurementFactor = 0.8 * range/3.3;
   }else{
-    slopeFactor = 5000 * range/10;
-    measurementFactor = 50 * range/3.3;
+    slopeFactor = 200 * range/10;
+    measurementFactor = 8 * range/3.3;
   }
   // pulse ? RGB_GREEN : RGB_BLUE
   uint16_t slopeColor;
@@ -190,8 +196,8 @@ float getAverageMeasurement( adc_channel_t pin, int totalCount ){
   return average;
 }
 
-float float_max(float a, float b){
-  if (a>=b)
+float float_min(float a, float b){
+  if (a<=b)
     return a;
   return b;
 }
@@ -212,8 +218,8 @@ float getSlope( float sample, float *previousSample ){
   return amountOfChange( sample, previousSample );
 }
 
-void newMeasurement(){
-}
+// void newMeasurement(){
+// }
 
 void drawWordFloat( char *format, float value, uint16_t color, int y, char *string, int *charLength, int *x, display_t *display, FontxFile *fx ){
   sprintf(string, format, value);
@@ -231,10 +237,37 @@ void drawWordInt( char *format, int value, uint16_t color, int y, char *string, 
   *x = displayDrawString( display, fx, *x, y, (uint8_t *)string, color );
 }
 
+void drawWord( char *format, uint16_t color, int y, char *string, int *charLength, int *x, display_t *display, FontxFile *fx ){
+  // sprintf(string, format);
+  strcpy(string, format);
+  // printf("p0 %d\n", strlen(string));
+  (*charLength)+=strlen(string);
+  if((*charLength)>29) return;
+  *x = displayDrawString( display, fx, *x, y, (uint8_t *)string, color );
+}
+
 void updateDisplay(float frequency, float measurement, int timeDifference, display_t *display, FontxFile *fx){
   // return;
   char string[MAX_SIZE];
   // char string[15];
+  int x = 0;
+  int y = 15;
+  int charLength = 0;
+
+  
+  if(get_switch_state( SWITCH1 )) {
+    if(!bpmTextShown){
+      x=50;
+      displayClearText( display, RGB_BLACK );
+      drawWord( "BPM\n", RGB_GREEN, y, string, &charLength, &x, display, fx );
+      bpmTextShown = 1;
+      x=0;
+    }
+    displayDrawFillRect ( display, 0, 0, 31, 15, RGB_BLACK );
+    drawWordFloat( "%.0f\n", frequency     , RGB_GREEN, y, string, &charLength, &x, display, fx );
+    return;
+  }
+  bpmTextShown = 0;
   displayClearText( display, RGB_BLACK );
   // uint8_t byte[] = "";
   // sprintf(string, "%.0fB %.3fV %d\n", frequency, measurement, get_switch_state( SWITCH0 ));
@@ -245,11 +278,10 @@ void updateDisplay(float frequency, float measurement, int timeDifference, displ
   //   byte[i] = (uint8_t)string[i];
   // }
   // displayDrawString(display, fx, 0, 31, byte, RGB_WHITE);
-  int x = 0;
-  int y = 15;
-  int charLength = 0;
 
   drawWordFloat( "%.0fBPM\n", frequency     , RGB_GREEN, y, string, &charLength, &x, display, fx );
+  
+
   drawWordFloat( "%.3fV\n"  , measurement   , RGB_RED  , y, string, &charLength, &x, display, fx );
   drawWordInt  ( "%dms\n"   , timeDifference, RGB_GREEN, y, string, &charLength, &x, display, fx );
   drawWordFloat( "%.2fHz\n" , frequency/60  , RGB_GREEN, y, string, &charLength, &x, display, fx );
@@ -337,7 +369,8 @@ int pulseDetected(frequency_t frequencyValue){
   // printf("times %d %d difference %d frequency %f\n", millis(), *previousTime, timeDifference, frequency);
   *frequencyValue.previousTime        = *previousTime;
   *frequencyValue.timeDifference      = timeDifference;
-  *frequencyValue.frequency = smoothener(frequency, *frequencyValue.frequency, 0.5);
+  *frequencyValue.frequency = frequency;
+  // *frequencyValue.frequency = smoothener(frequency, *frequencyValue.frequency, 0.9);
   // *frequencyValue.frequency = frequency;
   // *frequencyValue.frequency = 0.0;
   displayPulse();
@@ -374,10 +407,10 @@ void frequencyDetection(frequency_t frequencyValue, display_t *display){
 void buttonInput(){
   if (millis() % 10 != 0) return;
   if (get_button_state(BUTTON0)){
-    threshold -= 0.00001;
+    threshold -= thresholdAdjustment;
   }
   if (get_button_state(BUTTON1)){
-    threshold += 0.00001;
+    threshold += thresholdAdjustment;
   }
 }
 
@@ -423,7 +456,8 @@ void sendSignal( frequency_t frequencyValue, display_t *display ){
   
   char string[MAX_SIZE];
   uint8_t byte[] = "";
-  sprintf(string, "%.0fB", float_max(240,*(frequencyValue.frequency)));//fmax(240, )
+  // printf("freq%.0f\n", *(frequencyValue.frequency));
+  sprintf(string, "%.0fB", float_min(240,*(frequencyValue.frequency)));//fmax(240, )
   for (int i = 0; i < 20; i++)
   {
     byte[i] = (uint8_t)string[i];
@@ -602,6 +636,7 @@ int main(void)
   display_t display;
   display_init(&display);
   displayClearText(&display, RGB_BLACK);
+  // display_set_flip(&display, 0, 1);
   FontxFile fx[2];
   // InitFontx(fx, "./ILMH32XB.FNT", "./ILMH32XB.FNT");
   
