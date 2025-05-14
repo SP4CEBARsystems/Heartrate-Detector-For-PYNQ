@@ -6,6 +6,7 @@
 #define MAX_SIZE 1000
 
 int BEATLED = 0;
+int graphPosition = 0;
 
 const int calibrateThresholdL = BUTTON0;
 const int calibrateThresholdH = BUTTON1;
@@ -23,7 +24,7 @@ typedef struct frequency2_t{
 } frequency_t;
 
 int millis(){
-  //time_t is a 32 bit int just like int
+  //"time_t" is a 32 bit int just like "int"
   return clock()*1000 / CLOCKS_PER_SEC;
 }
 
@@ -55,6 +56,48 @@ float average2(float v1, float v2){
 //     }
 //     *timeValue=millis();
 // }
+
+void plot(display_t *display, uint16_t x, uint16_t y, uint16_t height, uint16_t top, uint16_t bottom, uint16_t color){
+  uint16_t pointTop    = fmax(top   , top+y-0.5*height);
+  uint16_t pointBottom = fmin(bottom, top+y+0.5*height);
+  if (pointTop >= pointBottom) return;
+  // displayDrawPixel ( display, x, y, color );
+  displayDrawFillRect ( display, x, pointBottom, x, pointTop, color );
+}
+
+void sensorGraph( display_t *display, int *x, float measurement, float slope, float threshold ){
+  uint16_t top = 32;
+  uint16_t bottom = DISPLAY_HEIGHT-1;
+  uint16_t range = bottom - top;
+  displayDrawFillRect ( display, *x, top, *x, bottom, RGB_BLACK );
+  float slopeFactor = range/10;
+  float measurementFactor = range/3.3;
+  plot ( display, *x, threshold   * slopeFactor      , 4, top, bottom, RGB_WHITE );
+  plot ( display, *x, measurement * measurementFactor, 4, top, bottom, RGB_RED );
+  plot ( display, *x, slope       * slopeFactor      , 4, top, bottom, RGB_BLUE );
+  (*x)++;
+  if((*x)>=DISPLAY_HEIGHT) (*x)=0;
+}
+
+float addToAverage( float value, int *count, float *average ){
+  if (*count<0) return *average;
+  *average += (value-(*average)) / (*count);
+  // *average += (value-(*average)) / ((*count)++);
+  return *average;
+}
+
+float getAverageMeasurement(){
+  //smoothen()
+  //average()
+  return 0;
+}
+
+float getSlope(){
+  return 0;
+}
+
+void newMeasurement(){
+}
 
 void updateDisplay(float frequency, float threshold, display_t *display, FontxFile *fx){
   char string[MAX_SIZE];
@@ -94,7 +137,7 @@ int softwareSchmittTrigger(float sample, int *schmittTriggerState, float lowerTh
   return 0;
 }
 
-void frequencyDetection(frequency_t frequencyValue){
+void frequencyDetection(frequency_t frequencyValue, display_t *display){
   // return;
   // float sample = frequencyValue.sample;
   int *schmittTriggerState = frequencyValue.schmittTriggerState;
@@ -117,23 +160,24 @@ void frequencyDetection(frequency_t frequencyValue){
     // *frequencyValue.frequency = frequency;
     // *frequencyValue.frequency = 0.0;
   }
+  sensorGraph( display, &graphPosition, 0, 1, 2 );
 }
 
-void waitUntilSomeTimePassed(unsigned int *timeValue, unsigned int duration, frequency_t frequencyValue){
+void waitUntilSomeTimePassed(unsigned int *timeValue, unsigned int duration, frequency_t frequencyValue, display_t *display){
 // void waitUntilSomeTimePassed(unsigned int *timeValue, unsigned int duration){
   //duration is in milliseconds
     while(millis()-(*timeValue)<duration){
         // printf("waiting %d...\n", millis()-(*timeValue));
-      frequencyDetection(frequencyValue);
+      frequencyDetection(frequencyValue, display);
       // printf("%f",frequencyValue.lowerThreshold);
       if (get_button_state(exit_button) || get_button_state(reset_button)) break;
     }
     *timeValue=millis();
 }
 
-void waitSomeTime(unsigned int duration, frequency_t frequencyValue){
+void waitSomeTime(unsigned int duration, frequency_t frequencyValue, display_t *display){
   unsigned int timeValue = millis();
-  waitUntilSomeTimePassed(&timeValue, duration, frequencyValue);
+  waitUntilSomeTimePassed(&timeValue, duration, frequencyValue, display);
 }
 
 float float_max(float a, float b){
@@ -143,7 +187,7 @@ float float_max(float a, float b){
 }
 
 void sendSignal(unsigned int *timeValue, frequency_t frequencyValue, float threshold, display_t *display, FontxFile *fx){
-  waitUntilSomeTimePassed(timeValue, 1000, frequencyValue);
+  waitUntilSomeTimePassed(timeValue, 1000, frequencyValue, display);
   if (get_button_state(exit_button) || get_button_state(reset_button)) return;
   updateDisplay(*(frequencyValue.frequency), threshold, display, fx);
   char string[MAX_SIZE];
@@ -164,7 +208,7 @@ void sendSignal(unsigned int *timeValue, frequency_t frequencyValue, float thres
     uart_send(UART0, byte[i]);
     // sleep_msec(100);
     // customWait();
-    waitSomeTime(100, frequencyValue);
+    waitSomeTime(100, frequencyValue, display);
     if (byte[i]=='\0'){
       printf("\\0");
     }else{
