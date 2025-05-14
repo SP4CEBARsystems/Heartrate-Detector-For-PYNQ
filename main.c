@@ -15,12 +15,13 @@ const int exit_button = BUTTON3;
 
 typedef struct frequency2_t{
   float sample;
-  int *schmittTriggerState;
-  float lowerThreshold;
-  float upperThreshold;
+  // int *schmittTriggerState;
+  // float lowerThreshold;
+  // float upperThreshold;
   int *previousTime;
   adc_channel_t pin;
   float *frequency;
+  float *previousMeasurement;
 } frequency_t;
 
 
@@ -63,9 +64,14 @@ float average2(float v1, float v2){
 
 //G R A P H I C S
 
+void displayClearText(display_t *display, uint16_t color){
+  // displayFillScreen( display, color );
+  displayDrawFillRect ( display, 0, 0, DISPLAY_WIDTH-1, 32, color );
+}
+
 void plot(display_t *display, uint16_t x, uint16_t y, uint16_t height, uint16_t top, uint16_t bottom, uint16_t color){
-  uint16_t pointTop    = fmax(top   , top+y-0.5*height);
-  uint16_t pointBottom = fmin(bottom, top+y+0.5*height);
+  uint16_t pointTop    = fmax(top   , bottom-(y+0.5*height));
+  uint16_t pointBottom = fmin(bottom, bottom-(y-0.5*height));
   if (pointTop >= pointBottom) return;
   // displayDrawPixel ( display, x, y, color );
   displayDrawFillRect ( display, x, pointBottom, x, pointTop, color );
@@ -79,16 +85,17 @@ void sensorGraph( display_t *display, int *x, float measurement, float slope, fl
   float slopeFactor = range/10;
   float measurementFactor = range/3.3;
   plot ( display, *x, threshold   * slopeFactor      , 4, top, bottom, RGB_WHITE );
-  plot ( display, *x, measurement * measurementFactor, 4, top, bottom, RGB_RED );
-  plot ( display, *x, slope       * slopeFactor      , 4, top, bottom, RGB_BLUE );
+  plot ( display, *x, slope       * slopeFactor      , 4, top, bottom, RGB_BLUE  );
+  plot ( display, *x, measurement * measurementFactor, 4, top, bottom, RGB_RED   );
   (*x)++;
   if((*x)>=DISPLAY_HEIGHT) (*x)=0;
 }
 
 float addToAverage( float value, int *count, float *average ){
+  // (*count)++;
   if (*count<0) return *average;
-  *average += (value-(*average)) / (*count);
-  // *average += (value-(*average)) / ((*count)++);
+  // (*average) += (value-(*average)) / (*count);
+  *average += (value-(*average)) / ((*count)++);
   return *average;
 }
 
@@ -96,6 +103,7 @@ float getAverageMeasurement( adc_channel_t pin, int totalCount ){
   float average = 0;
   int count     = 0;
   for( int i=0; i<totalCount; i++ ){
+    // addToAverage( adc_read_channel(pin), &count, &average );
     addToAverage( adc_read_channel(pin), &count, &average );
   }
   return average;
@@ -114,15 +122,15 @@ float getSlope(){
 void newMeasurement(){
 }
 
-void updateDisplay(float frequency, float threshold, display_t *display, FontxFile *fx){
+void updateDisplay(float frequency, float measurement, display_t *display, FontxFile *fx){
   char string[MAX_SIZE];
   uint8_t byte[] = "";
-    sprintf(string, "%.0fBPM\n%.0000f\n", frequency, threshold);
+    sprintf(string, "%.0fB %.3fV\n", frequency, measurement);
     for (int i = 0; i < 20; i++)
     {
       byte[i] = (uint8_t)string[i];
     }
-    displayFillScreen(display, RGB_BLACK);
+    displayClearText( display, RGB_BLACK );
     displayDrawString(display, fx, 0, 31, byte, RGB_WHITE);
 }
 
@@ -138,19 +146,19 @@ int amountOfChangeInt(int value, int *previousValue){
   return difference;
 }
 
-int softwareSchmittTrigger(float sample, int *schmittTriggerState, float lowerThreshold, float upperThreshold){
-  // printf("%f %f %f %d\n", lowerThreshold, sample, upperThreshold, *schmittTriggerState);
-  if(*schmittTriggerState==1 && sample<lowerThreshold){
-    *schmittTriggerState = 0;
-    printf("trigger off\n");
-    return 0;
-  }else if (*schmittTriggerState==0 && sample>upperThreshold){
-    *schmittTriggerState = 1;
-    printf("trigger on\n");
-    return 1;
-  }
-  return 0;
-}
+// int softwareSchmittTrigger(float sample, int *schmittTriggerState, float lowerThreshold, float upperThreshold){
+//   // printf("%f %f %f %d\n", lowerThreshold, sample, upperThreshold, *schmittTriggerState);
+//   if(*schmittTriggerState==1 && sample<lowerThreshold){
+//     *schmittTriggerState = 0;
+//     printf("trigger off\n");
+//     return 0;
+//   }else if (*schmittTriggerState==0 && sample>upperThreshold){
+//     *schmittTriggerState = 1;
+//     printf("trigger on\n");
+//     return 1;
+//   }
+//   return 0;
+// }
 
 void displayPulse(){
   printf("PULSE!\n");
@@ -174,19 +182,26 @@ void pulseDetected(frequency_t frequencyValue){
 void frequencyDetection(frequency_t frequencyValue, display_t *display){
   // return;
   // float sample = frequencyValue.sample;
-  int *schmittTriggerState = frequencyValue.schmittTriggerState;
-  float lowerThreshold = frequencyValue.lowerThreshold;
-  float upperThreshold = frequencyValue.upperThreshold;
+  // int *schmittTriggerState = frequencyValue.schmittTriggerState;
+  // float lowerThreshold = frequencyValue.lowerThreshold;
+  // float upperThreshold = frequencyValue.upperThreshold;
+  float *previousMeasurement = frequencyValue.previousMeasurement;
   adc_channel_t pin = frequencyValue.pin;
 
-  //getAverageMeasurement( pin, 100 );
+  float threshold = 5;
+  float measurement = getAverageMeasurement( pin, 100 );
+  float slope = getSlope(measurement, previousMeasurement);
+  if(slope>threshold)
+    pulseDetected(frequencyValue);
 
   //float sample, int *schmittTriggerState, float lowerThreshold, float upperThreshold, int *previousTime
-  if ((softwareSchmittTrigger(adc_read_channel(pin), schmittTriggerState, lowerThreshold, upperThreshold)||0)&&1){
-    pulseDetected(frequencyValue);
-    *frequencyValue.schmittTriggerState = *schmittTriggerState;
-  }
-  sensorGraph( display, &graphPosition, 0, 1, 2 );
+  // if ((softwareSchmittTrigger(adc_read_channel(pin), schmittTriggerState, lowerThreshold, upperThreshold)||0)&&1){
+  //   pulseDetected(frequencyValue);
+  //   *frequencyValue.schmittTriggerState = *schmittTriggerState;
+  // }
+  // sensorGraph( display, &graphPosition, 0.5*(1+sin(0.1*millis())), 3*(1+sin(0.07*millis())), threshold );
+  sensorGraph( display, &graphPosition, measurement, slope, threshold );
+  *previousMeasurement = measurement;
 }
 
 void waitUntilSomeTimePassed(unsigned int *timeValue, unsigned int duration, frequency_t frequencyValue, display_t *display){
@@ -243,47 +258,47 @@ void sendSignal( frequency_t frequencyValue, display_t *display ){
   // }
 }
 
-void calibrate2(float *lowerThreshold, float *upperThreshold, const int calibrationButton, adc_channel_t pin){
-  wait_until_button_pushed(calibrationButton);
-  printf("calibrating...\n");
-  float sample = 0;
-  float lowestValue = 0;
-  float highestValue = 0;
-  float averageValue = 0;
-  while(get_button_state(calibrationButton)){
-    sample = adc_read_channel(pin);
-    lowestValue=fmin(sample, lowestValue);
-    highestValue=fmax(sample, highestValue);
-    averageValue=smoothener(sample, averageValue, 0.1);
-    // printf("sample %f highestValue %f lowestValue %f averageValue %f\n", sample, highestValue, lowestValue, averageValue);
-  }
-  // if (upperMode) return average2(highestValue, averageValue);
-  printf("highestValue %f lowestValue %f averageValue %f\n", highestValue, lowestValue, averageValue);
-  *upperThreshold = averageValue;
-  *lowerThreshold = highestValue;
-}
+// void calibrate2(float *lowerThreshold, float *upperThreshold, const int calibrationButton, adc_channel_t pin){
+//   wait_until_button_pushed(calibrationButton);
+//   printf("calibrating...\n");
+//   float sample = 0;
+//   float lowestValue = 0;
+//   float highestValue = 0;
+//   float averageValue = 0;
+//   while(get_button_state(calibrationButton)){
+//     sample = adc_read_channel(pin);
+//     lowestValue=fmin(sample, lowestValue);
+//     highestValue=fmax(sample, highestValue);
+//     averageValue=smoothener(sample, averageValue, 0.1);
+//     // printf("sample %f highestValue %f lowestValue %f averageValue %f\n", sample, highestValue, lowestValue, averageValue);
+//   }
+//   // if (upperMode) return average2(highestValue, averageValue);
+//   printf("highestValue %f lowestValue %f averageValue %f\n", highestValue, lowestValue, averageValue);
+//   *upperThreshold = averageValue;
+//   *lowerThreshold = highestValue;
+// }
 
-float calibrate(const int calibrationButton, adc_channel_t pin, int upperMode){
-  wait_until_button_pushed(calibrationButton);
-  printf("calibrating...\n");
-  float sample = 0;
-  float lowestValue = 10;
-  float highestValue = 0;
-  float averageValue = 0;
-  while(get_button_state(calibrationButton)){
-    sample = adc_read_channel(pin);
-    lowestValue=smoothener(fmin(sample, lowestValue), lowestValue, 0.1);
-    highestValue=smoothener(fmax(sample, highestValue), highestValue, 0.1);
-    averageValue=smoothener(sample, averageValue, 0.1);
-    // printf("sample %f highestValue %f lowestValue %f averageValue %f\n", sample, highestValue, lowestValue, averageValue);
-    // printf("sample %f\n", sample);
-  }
-  // if (upperMode) return average2(highestValue, averageValue);
-  printf("highestValue %f lowestValue %f averageValue %f\n", highestValue, lowestValue, averageValue);
-  // if (upperMode) return averageValue;
-  if (upperMode) return lowestValue;
-  return highestValue;
-}
+// float calibrate(const int calibrationButton, adc_channel_t pin, int upperMode){
+//   wait_until_button_pushed(calibrationButton);
+//   printf("calibrating...\n");
+//   float sample = 0;
+//   float lowestValue = 10;
+//   float highestValue = 0;
+//   float averageValue = 0;
+//   while(get_button_state(calibrationButton)){
+//     sample = adc_read_channel(pin);
+//     lowestValue =smoothener(fmin(sample, lowestValue), lowestValue, 0.1);
+//     highestValue=smoothener(fmax(sample, highestValue), highestValue, 0.1);
+//     averageValue=smoothener(sample, averageValue, 0.1);
+//     // printf("sample %f highestValue %f lowestValue %f averageValue %f\n", sample, highestValue, lowestValue, averageValue);
+//     // printf("sample %f\n", sample);
+//   }
+//   // if (upperMode) return average2(highestValue, averageValue);
+//   printf("highestValue %f lowestValue %f averageValue %f\n", highestValue, lowestValue, averageValue);
+//   // if (upperMode) return averageValue;
+//   if (upperMode) return lowestValue;
+//   return highestValue;
+// }
 
 void displayDrawStringReally(display_t *display, FontxFile *fx, uint16_t x, uint16_t y, char *string, uint16_t color ){
   uint8_t asciii[strlen(string)];
@@ -295,44 +310,45 @@ void displayDrawStringReally(display_t *display, FontxFile *fx, uint16_t x, uint
   displayDrawString(display, fx, x, y, asciii, color);
 }
 
-void calibrateThresholds(display_t *display, FontxFile *fx, float *lowerThreshold, float *upperThreshold, adc_channel_t pin, const int calibrateThresholdL, const int calibrateThresholdH){
-  // printf("press button 0 to start smart calibration...\n");
-  // calibrate2(lowerThreshold, upperThreshold, calibrateThresholdL, pin);
-  displayFillScreen(display, RGB_BLACK);
-  for(int i=0; i<3; i++)
-    green_led_off(i);
-  printf("press button 0 to start neutral calibration...\n");
-  green_led_on(0);
-  char string[14]="neutral    ";
-  displayDrawStringReally(display, fx, 0,  31, string, RGB_WHITE);
-  strcpy(string,"calibration  ");
-  displayDrawStringReally(display, fx, 0, 63, string, RGB_WHITE);
-  strcpy(string,"press button0");
-  displayDrawStringReally(display, fx, 0,  95, string, RGB_WHITE);
-  // green_led_on(1);
-  *lowerThreshold= calibrate(calibrateThresholdL, pin, 0);
-  green_led_off(0);
+// void calibrateThresholds(display_t *display, FontxFile *fx, float *lowerThreshold, float *upperThreshold, adc_channel_t pin, const int calibrateThresholdL, const int calibrateThresholdH){
+//   // printf("press button 0 to start smart calibration...\n");
+//   // calibrate2(lowerThreshold, upperThreshold, calibrateThresholdL, pin);
+//   displayFillScreen(display, RGB_BLACK);
+//   for(int i=0; i<3; i++)
+//     green_led_off(i);
+//   printf("press button 0 to start neutral calibration...\n");
+//   green_led_on(0);
+//   char string[14]="neutral    ";
+//   displayDrawStringReally(display, fx, 0,  31, string, RGB_WHITE);
+//   strcpy(string,"calibration  ");
+//   displayDrawStringReally(display, fx, 0, 63, string, RGB_WHITE);
+//   strcpy(string,"press button0");
+//   displayDrawStringReally(display, fx, 0,  95, string, RGB_WHITE);
+//   // green_led_on(1);
+//   *lowerThreshold= calibrate(calibrateThresholdL, pin, 0);
+//   green_led_off(0);
 
-  green_led_on(1);
-  printf("press button 1 to start pulse calibration...\n");
-  displayFillScreen(display, RGB_BLACK);
-  // char string[14]="pulse      ";
-  strcpy(string,"pulse        ");
-  displayDrawStringReally(display, fx, 0,  31, string, RGB_WHITE);
-  strcpy(string,"calibration  ");
-  displayDrawStringReally(display, fx, 0, 63, string, RGB_WHITE);
-  strcpy(string,"press button1");
-  displayDrawStringReally(display, fx, 0,  95, string, RGB_WHITE);
-  *upperThreshold= calibrate(calibrateThresholdH, pin, 1);
-  if(calibrateThresholdH){}//unused parameters error is gone
-  printf("done calibrating: lower: %f, upper: %f\n", *lowerThreshold, *upperThreshold);
-  green_led_off(1);
-}
+//   green_led_on(1);
+//   printf("press button 1 to start pulse calibration...\n");
+//   displayFillScreen(display, RGB_BLACK);
+//   // char string[14]="pulse      ";
+//   strcpy(string,"pulse        ");
+//   displayDrawStringReally(display, fx, 0,  31, string, RGB_WHITE);
+//   strcpy(string,"calibration  ");
+//   displayDrawStringReally(display, fx, 0, 63, string, RGB_WHITE);
+//   strcpy(string,"press button1");
+//   displayDrawStringReally(display, fx, 0,  95, string, RGB_WHITE);
+//   *upperThreshold= calibrate(calibrateThresholdH, pin, 1);
+//   if(calibrateThresholdH){}//unused parameters error is gone
+//   printf("done calibrating: lower: %f, upper: %f\n", *lowerThreshold, *upperThreshold);
+//   green_led_off(1);
+// }
 
-void valueTransmission(float threshold, display_t *display, FontxFile *fx, unsigned int *timeValue, frequency_t frequencyValue){
+void valueTransmission( display_t *display, FontxFile *fx, unsigned int *timeValue, frequency_t frequencyValue){
   waitUntilSomeTimePassed(timeValue, 1000, frequencyValue, display);
   if (get_button_state(exit_button) || get_button_state(reset_button)) return;
-  updateDisplay(*(frequencyValue.frequency), threshold, display, fx);
+  updateDisplay(*(frequencyValue.frequency), *(frequencyValue.previousMeasurement),display, fx);
+  // threshold, 
   sendSignal( frequencyValue, display );
 }
 
@@ -348,14 +364,18 @@ void clearAllIndicators( display_t *display ){
     green_led_off(i);
   displayFillScreen( display, RGB_BLACK );
 }
+
+int programExit(){
+  return get_button_state(exit_button);
+}
  
 
 int main(void)
 {
   pynq_init();
 
-  int schmittTriggerState = 0;
-  float lowerThreshold, upperThreshold;
+  // int schmittTriggerState = 0;
+  // float lowerThreshold, upperThreshold;
   unsigned int timeValue = 0;
 
   // switchbox_set_pin(IO_PMODA1, SWB_UART0_TX);
@@ -364,7 +384,7 @@ int main(void)
   uart_reset_fifos(UART0);
   display_t display;
   display_init(&display);
-  displayFillScreen(&display, RGB_BLACK);
+  displayClearText(&display, RGB_BLACK);
   FontxFile fx[2];
   // InitFontx(fx, "./ILMH32XB.FNT", "./ILMH32XB.FNT");
   
@@ -379,7 +399,7 @@ int main(void)
   
   adc_channel_t pin = ADC0;
   // float threshold = 0.007*10000000;
-  float threshold = 0.1;
+  // float threshold = 0.1;
   // float thresholdTrim = 0;
   // float previousSample = adc_read_channel(pin);
   int previousTime = millis();
@@ -387,28 +407,30 @@ int main(void)
   // const int thresholdTrimUp    = BUTTON2;
   // const int thresholdTrimDown  = BUTTON3;
   float frequency = 0;
-
+  float previousMeasurement = 0;
 
   frequency_t frequencyValue;
   frequencyValue.sample              = 0;
-  frequencyValue.schmittTriggerState = &schmittTriggerState;
+  // frequencyValue.schmittTriggerState = &schmittTriggerState;
   frequencyValue.previousTime        = &previousTime;
   frequencyValue.pin                 = pin;
   frequencyValue.frequency           = &frequency;
+  frequencyValue.previousMeasurement = &previousMeasurement;
 
   
   
 
-  int first = 1;
+  // int first = 1;
 
   do{
+    // if (first || get_button_state(reset_button)){
+    //   calibrateThresholds(&display, fx, &lowerThreshold, &upperThreshold, pin, calibrateThresholdL, calibrateThresholdH);
+    //   frequencyValue.lowerThreshold      = lowerThreshold;
+    //   frequencyValue.upperThreshold      = upperThreshold;
+    //   first=0;
+    // }
 
-    if (first || get_button_state(reset_button)){
-      calibrateThresholds(&display, fx, &lowerThreshold, &upperThreshold, pin, calibrateThresholdL, calibrateThresholdH);
-      frequencyValue.lowerThreshold      = lowerThreshold;
-      frequencyValue.upperThreshold      = upperThreshold;
-      first=0;
-    }
+
     // float difference = amountOfChange(adc_read_channel(pin), &previousSample);
     // printf("%f\n", difference);
     // printf("%d\n", millis());
@@ -433,11 +455,7 @@ int main(void)
     // wait_until_button_pushed(0);
     // if ((difference > threshold||0)&&1){
     //float frequency, float threshold, display_t *display, FontxFile *fx, unsigned int *timeValue, frequency_t frequencyValue
-    valueTransmission(threshold, &display, fx, &timeValue, frequencyValue);
-    if (get_button_state(exit_button)){
-      clearAllIndicators( &display );
-      break;
-    }
+    valueTransmission( &display, fx, &timeValue, frequencyValue );
     // if ((softwareSchmittTrigger(adc_read_channel(pin), &schmittTriggerState, lowerThreshold, upperThreshold)||0)&&1){
     //   int timeDifference = amountOfChangeInt(millis(), &previousTime);
     //   frequency = calculateFrequency(timeDifference);
@@ -445,7 +463,8 @@ int main(void)
     //   updateDisplay(frequency, threshold, &display, fx);
     //   sendSignal(frequency);
     // }
-  }while(1);
+  }while( !programExit() );
+  clearAllIndicators( &display );
   buttons_destroy();
   adc_destroy();
   leds_destroy(); // switches all leds off
