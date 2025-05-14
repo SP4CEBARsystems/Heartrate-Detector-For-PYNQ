@@ -7,11 +7,14 @@
 
 int BEATLED = 0;
 int graphPosition = 0;
+// float averagingSizeExponent = 1;
+int averagingSize = 5000;
+float threshold = .0015;
 
 const int calibrateThresholdL = BUTTON0;
 const int calibrateThresholdH = BUTTON1;
-const int reset_button = BUTTON2;
-const int exit_button = BUTTON3; 
+const int reset_button        = BUTTON2;
+const int exit_button         = BUTTON3; 
 
 typedef struct frequency2_t{
   float sample;
@@ -69,26 +72,60 @@ void displayClearText(display_t *display, uint16_t color){
   displayDrawFillRect ( display, 0, 0, DISPLAY_WIDTH-1, 32, color );
 }
 
-void plot(display_t *display, uint16_t x, uint16_t y, uint16_t height, uint16_t top, uint16_t bottom, uint16_t color){
-  uint16_t pointTop    = fmax(top   , bottom-(y+0.5*height));
-  uint16_t pointBottom = fmin(bottom, bottom-(y-0.5*height));
+void plotSegment(display_t *display, uint16_t x, uint16_t yTop, uint16_t yBottom, uint16_t top, uint16_t bottom, uint16_t color){
+  uint16_t pointTop    = fmax( top   , bottom - yBottom     );
+  uint16_t pointBottom = fmin( bottom, bottom - yTop );
   if (pointTop >= pointBottom) return;
   // displayDrawPixel ( display, x, y, color );
   displayDrawFillRect ( display, x, pointBottom, x, pointTop, color );
 }
 
+void plotSolid(display_t *display, uint16_t x, uint16_t y, uint16_t top, uint16_t bottom, uint16_t color){
+  plotSegment( display, x, 0, y, top, bottom, color);
+  // uint16_t pointTop    = fmax(top   , bottom-(y+0.5*height));
+  // uint16_t pointBottom = fmin(bottom, bottom-(y-0.5*height));
+  // if (pointTop >= pointBottom) return;
+  // // displayDrawPixel ( display, x, y, color );
+  // displayDrawFillRect ( display, x, pointBottom, x, pointTop, color );
+}
+
+void plot(display_t *display, uint16_t x, uint16_t y, uint16_t height, uint16_t top, uint16_t bottom, uint16_t color){
+  plotSegment( display, x, y-0.5*height, y+0.5*height, top, bottom, color);
+  // uint16_t pointTop    = fmax(top   , bottom-(y+0.5*height));
+  // uint16_t pointBottom = fmin(bottom, bottom-(y-0.5*height));
+  // if (pointTop >= pointBottom) return;
+  // // displayDrawPixel ( display, x, y, color );
+  // displayDrawFillRect ( display, x, pointBottom, x, pointTop, color );
+}
+
 void sensorGraph( display_t *display, int *x, float measurement, float slope, float threshold ){
   uint16_t top = 32;
   uint16_t bottom = DISPLAY_HEIGHT-1;
+  uint16_t actualTop = bottom-top;
   uint16_t range = bottom - top;
-  displayDrawFillRect ( display, *x, top, *x, bottom, slope>threshold ? RGB_WHITE : RGB_BLACK );
-  float slopeFactor = 20 * range/10;
-  float measurementFactor = range/3.3;
-  plot ( display, *x, threshold   * slopeFactor      , 4, top, bottom, RGB_WHITE );
-  plot ( display, *x, slope       * slopeFactor      , 4, top, bottom, RGB_BLUE  );
-  plot ( display, *x, measurement * measurementFactor, 4, top, bottom, RGB_RED   );
+  int pulse = slope>threshold;
+  displayDrawFillRect ( display, *x, top, *x, bottom, RGB_BLACK );
+  float slopeFactor, measurementFactor;
+  if (get_switch_state( SWITCH0 )){
+    slopeFactor = 100 * range/10;
+    measurementFactor = 0.8 * range/3.3;
+  }else{
+    slopeFactor = 5000 * range/10;
+    measurementFactor = 5 * range/3.3;
+  }
+  plot     ( display, *x, threshold   * slopeFactor      , 4, top, bottom, RGB_WHITE );
+  plotSolid( display, *x, slope       * slopeFactor         , top, bottom, RGB_BLUE  );
+  // plot ( display, *x, slope       * slopeFactor      , 4, top, bottom, RGB_BLUE  );
+  plot     ( display, *x, measurement * measurementFactor, 4, top, bottom, RGB_RED   );
+  if(pulse){plot ( display, *x, actualTop, 20, top, bottom, RGB_GREEN );}
   (*x)++;
   if((*x)>=DISPLAY_HEIGHT) (*x)=0;
+}
+
+float readSensor( adc_channel_t pin ){
+  if(get_switch_state( SWITCH0 ))
+    return 3.3-adc_read_channel( pin );
+  return adc_read_channel( pin );
 }
 
 float addToAverage( float value, int *count, float *average ){
@@ -103,8 +140,8 @@ float getAverageMeasurement( adc_channel_t pin, int totalCount ){
   int count     = 0;
   for( int i=0; i<totalCount; i++ ){
     if(pin){}//pin is used
-    // addToAverage( adc_read_channel(pin), &count, &average );
-    addToAverage( 1 +0.5*((sin(0.0007*millis()))>0.5) +0.1*(sin(0.0035*millis())) +0.5*(sin(2000*millis())) +0.2*(sin(11111*millis())), &count, &average );
+    addToAverage( readSensor(pin), &count, &average );
+    // addToAverage( 1 +0.5*((sin(0.0007*millis()))>0.5) +0.1*(sin(0.0035*millis())) +0.5*(sin(2000*millis())) +0.2*(sin(11111*millis())), &count, &average );
   }
   return average;
 }
@@ -137,7 +174,9 @@ void newMeasurement(){
 void updateDisplay(float frequency, float measurement, display_t *display, FontxFile *fx){
   char string[MAX_SIZE];
   uint8_t byte[] = "";
-    sprintf(string, "%.0fB %.3fV\n", frequency, measurement);
+    // sprintf(string, "%.0fB %.3fV %d\n", frequency, measurement, get_switch_state( SWITCH0 ));
+    // sprintf(string, "%.0fB %.3fV A%d T%.1f S%d\n", frequency, measurement, averagingSize, threshold, get_switch_state( SWITCH0 ));
+    sprintf(string, "%.0fB %.3fV A%d S%d\n", frequency, measurement, averagingSize, get_switch_state( SWITCH0 ));
     for (int i = 0; i < 20; i++)
     {
       byte[i] = (uint8_t)string[i];
@@ -168,8 +207,8 @@ void displayPulse(){
 
 void pulseDetected(frequency_t frequencyValue){
   int *previousTime = frequencyValue.previousTime;
-  displayPulse();
   int timeDifference = amountOfChangeInt(millis(), previousTime);
+  if (timeDifference<10) return;
   float frequency = calculateFrequency(timeDifference);
   // printf("%f\n", frequency);
   // printf("times %d %d difference %d frequency %f\n", millis(), *previousTime, timeDifference, frequency);
@@ -177,6 +216,7 @@ void pulseDetected(frequency_t frequencyValue){
   *frequencyValue.frequency = smoothener(frequency, *frequencyValue.frequency, 0.5);
   // *frequencyValue.frequency = frequency;
   // *frequencyValue.frequency = 0.0;
+  displayPulse();
 }
 
 void frequencyDetection(frequency_t frequencyValue, display_t *display){
@@ -188,8 +228,7 @@ void frequencyDetection(frequency_t frequencyValue, display_t *display){
   float *previousMeasurement = frequencyValue.previousMeasurement;
   adc_channel_t pin = frequencyValue.pin;
 
-  float threshold = .25;
-  float measurement = getAverageMeasurement( pin, 1500 );
+  float measurement = getAverageMeasurement( pin, averagingSize );
   float slope = getSlope(measurement, previousMeasurement);
   if(slope>threshold)
     pulseDetected(frequencyValue);
@@ -388,14 +427,15 @@ int main(void)
   FontxFile fx[2];
   // InitFontx(fx, "./ILMH32XB.FNT", "./ILMH32XB.FNT");
   
-  InitFontx(fx, "/home/student/libpynq-5EWC0-2023-v0.2.6/fonts/ILMH32XB.FNT", "/home/student/libpynq-5EWC0-2023-v0.2.6/fonts/ILMH32XB.FNT");
-  
+  // InitFontx(fx, "/home/student/libpynq-5EWC0-2023-v0.2.6/fonts/ILMH32XB.FNT", "/home/student/libpynq-5EWC0-2023-v0.2.6/fonts/ILMH32XB.FNT");
+  InitFontx(fx, "/home/student/libpynq-5EWC0-2023-v0.2.6/fonts/ILGH16XB.FNT", "/home/student/libpynq-5EWC0-2023-v0.2.6/fonts/ILGH16XB.FNT");
   // InitFontx(fx16G, "/home/student/libpynq-5EWC0-2023-v0.2.6/fonts/ILGH16XB.FNT", "");
 
   // gpio_reset();
   leds_init_onoff();
   adc_init();
   buttons_init();
+  switches_init();
   
   adc_channel_t pin = ADC0;
   // float threshold = 0.007*10000000;
@@ -465,6 +505,7 @@ int main(void)
     // }
   }while( !programExit() );
   clearAllIndicators( &display );
+  switches_destroy();
   buttons_destroy();
   adc_destroy();
   leds_destroy(); // switches all leds off
