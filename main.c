@@ -32,6 +32,9 @@ float threshold = .03;
 
 int bpmTextShown = 0;
 
+int pulseCandidate = 0;
+int pulseCandidateTime = 0;
+
 
 // int ledstate = 0;
 
@@ -134,31 +137,40 @@ void plot(display_t *display, uint16_t x, uint16_t y, uint16_t height, uint16_t 
   // displayDrawFillRect ( display, x, pointBottom, x, pointTop, color );
 }
 
-void sensorGraph( display_t *display, int *x, float measurement, float slope, float threshold, int pulseWasDetected ){
+void sensorGraph( display_t *display, int *x, float measurement, float slope, float threshold, int pulseWasDetected, int pulseCandidate ){
   // return;
   uint16_t top = 32;
   uint16_t bottom = DISPLAY_HEIGHT-1;
   // uint16_t actualTop = bottom-top;
   uint16_t range = bottom - top;
   int pulse = slope>threshold;
-  displayDrawFillRect ( display, *x, top, *x, bottom, RGB_BLACK );
+  displayDrawFillRect ( display, *x, top, *x, bottom, pulseWasDetected ? rgb_conv(0,127,0) : RGB_BLACK );
   float slopeFactor, measurementFactor;
+
   if (get_switch_state( SWITCH0 )){
     slopeFactor = 100 * range/10;
     measurementFactor = 0.8 * range/3.3;
   }else{
-    slopeFactor = 200 * range/10;
+    slopeFactor = 200 * range/10 *0.2; // * 0.03/threshold;
     measurementFactor = 8 * range/3.3;
+    //threshold
   }
   // pulse ? RGB_GREEN : RGB_BLUE
   uint16_t slopeColor;
+  
   if (pulse){
     if(pulseWasDetected){
       slopeColor = RGB_GREEN;
+    }else if(pulseCandidate){
+      slopeColor = rgb_conv(127,127,0);
     }else{
       slopeColor = rgb_conv(0,127,0);
       // slopeColor = RGB_CYAN;
     }
+  }else if(pulseCandidate){
+    slopeColor = rgb_conv(127,127,0);
+  }else if(pulseWasDetected){
+    slopeColor = RGB_GREEN;
   }else{
     slopeColor = RGB_BLUE;
   } 
@@ -196,10 +208,20 @@ float getAverageMeasurement( adc_channel_t pin, int totalCount ){
   return average;
 }
 
+float float_max(float a, float b){
+  if (a>=b)
+    return a;
+  return b;
+}
+
 float float_min(float a, float b){
   if (a<=b)
     return a;
   return b;
+}
+
+float float_clamp(float l, float h, float v){
+  return float_min(h,float_max(l,v));
 }
 
 float amountOfChange(float value, float *previousValue){
@@ -355,7 +377,7 @@ void updateDisplay(float frequency, float measurement, int timeDifference, displ
 // }
 
 void displayPulse(){
-  printf("PULSE!\n");
+  // printf("PULSE!\n");
   green_led_onoff(2,BEATLED);
   BEATLED = !BEATLED;
 }
@@ -390,7 +412,17 @@ void frequencyDetection(frequency_t frequencyValue, display_t *display){
   float slope = getSlope(measurement, previousMeasurement);
   int pulseWasDetected = 0;
   if(slope>threshold)
+    pulseCandidate = 1;
+
+  if(slope < -0.7*threshold){
+    pulseCandidate = 0;
+    pulseCandidateTime = millis();
+  }
+
+  if(pulseCandidate && (millis() - pulseCandidateTime > 5 || 1) ){
     pulseWasDetected = pulseDetected(frequencyValue);
+    pulseCandidate = 0;
+  }
 
   //float sample, int *schmittTriggerState, float lowerThreshold, float upperThreshold, int *previousTime
   // if ((softwareSchmittTrigger(adc_read_channel(pin), schmittTriggerState, lowerThreshold, upperThreshold)||0)&&1){
@@ -399,7 +431,8 @@ void frequencyDetection(frequency_t frequencyValue, display_t *display){
   // }
   // sensorGraph( display, &graphPosition, 0.5*(1+sin(0.1*millis())), 3*(1+sin(0.07*millis())), threshold );
   
-  sensorGraph( display, &graphPosition, measurement, slope, threshold, pulseWasDetected );
+  sensorGraph( display, &graphPosition, measurement, slope, threshold, pulseWasDetected, pulseCandidate );
+  pulseWasDetected = 0;
   
   *previousMeasurement = measurement;
 }
@@ -453,12 +486,12 @@ void waitSomeTime(unsigned int duration, frequency_t frequencyValue, display_t *
 
 void sendSignal( frequency_t frequencyValue, display_t *display ){
   // return;
-  
+  uart_reset_fifos(UART0);
   char string[MAX_SIZE];
-  uint8_t byte[] = "";
+  uint8_t byte[MAX_SIZE] = "";
   // printf("freq%.0f\n", *(frequencyValue.frequency));
-  sprintf(string, "%.0fB", float_min(240,*(frequencyValue.frequency)));//fmax(240, )
-  for (int i = 0; i < 20; i++)
+  sprintf(string, "%.0fB", float_clamp(60,240,*(frequencyValue.frequency)));//fmax(240, )
+  for (int i = 0; i < MAX_SIZE; i++)
   {
     byte[i] = (uint8_t)string[i];
   }
@@ -468,17 +501,23 @@ void sendSignal( frequency_t frequencyValue, display_t *display ){
   // (uint8_t *)string
   
   green_led_on(3);
-  printf("sending...\n");
+  // printf("sending...\n");
+  printf("sent ");
+  // for (int i=0; byte[i]!='\0'; i++)
+  // for (int i=0; string[i]!='\0'; i++)
   for (int i=0; byte[i]!='\0'; i++)
   {
+    // uart_send(UART0, (uint8_t)(string[i]));
     uart_send(UART0, byte[i]);
     // sleep_msec(100);
     // customWait();
     waitSomeTime(100, frequencyValue, display);
     if (byte[i]=='\0'){
+    // if (string[i]=='\0'){
       printf("\\0");
     }else{
       printf("%c", byte[i]);
+      // printf("%c", string[i]);
     }
   }
   printf("\n");
@@ -534,15 +573,15 @@ void sendSignal( frequency_t frequencyValue, display_t *display ){
 //   return highestValue;
 // }
 
-void displayDrawStringReally(display_t *display, FontxFile *fx, uint16_t x, uint16_t y, char *string, uint16_t color ){
-  uint8_t asciii[strlen(string)];
-  for(size_t i=0; i<strlen(string); i++){
-    asciii[i]=string[i];
-    // string[i]='\0';
-  }
-  // string[1]='\0';
-  displayDrawString(display, fx, x, y, asciii, color);
-}
+// void displayDrawStringReally(display_t *display, FontxFile *fx, uint16_t x, uint16_t y, char *string, uint16_t color ){
+//   uint8_t asciii[strlen(string)];
+//   for(size_t i=0; i<strlen(string); i++){
+//     asciii[i]=string[i];
+//     // string[i]='\0';
+//   }
+//   // string[1]='\0';
+//   displayDrawString(display, fx, x, y, asciii, color);
+// }
 
 // void calibrateThresholds(display_t *display, FontxFile *fx, float *lowerThreshold, float *upperThreshold, adc_channel_t pin, const int calibrateThresholdL, const int calibrateThresholdH){
 //   // printf("press button 0 to start smart calibration...\n");
@@ -632,7 +671,6 @@ int main(void)
   // switchbox_set_pin(IO_PMODA1, SWB_UART0_TX);
   switchbox_set_pin(IO_AR13, SWB_UART0_TX);
   uart_init(UART0);
-  uart_reset_fifos(UART0);
   display_t display;
   display_init(&display);
   displayClearText(&display, RGB_BLACK);
