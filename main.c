@@ -25,6 +25,7 @@ typedef struct frequency2_t{
   adc_channel_t pin;
   float *frequency;
   float *previousMeasurement;
+  int *timeDifference;
 } frequency_t;
 
 
@@ -98,10 +99,10 @@ void plot(display_t *display, uint16_t x, uint16_t y, uint16_t height, uint16_t 
   // displayDrawFillRect ( display, x, pointBottom, x, pointTop, color );
 }
 
-void sensorGraph( display_t *display, int *x, float measurement, float slope, float threshold ){
+void sensorGraph( display_t *display, int *x, float measurement, float slope, float threshold, int pulseWasDetected ){
   uint16_t top = 32;
   uint16_t bottom = DISPLAY_HEIGHT-1;
-  uint16_t actualTop = bottom-top;
+  // uint16_t actualTop = bottom-top;
   uint16_t range = bottom - top;
   int pulse = slope>threshold;
   displayDrawFillRect ( display, *x, top, *x, bottom, RGB_BLACK );
@@ -111,13 +112,26 @@ void sensorGraph( display_t *display, int *x, float measurement, float slope, fl
     measurementFactor = 0.8 * range/3.3;
   }else{
     slopeFactor = 5000 * range/10;
-    measurementFactor = 5 * range/3.3;
+    measurementFactor = 50 * range/3.3;
   }
-  plot     ( display, *x, threshold   * slopeFactor      , 4, top, bottom, RGB_WHITE );
-  plotSolid( display, *x, slope       * slopeFactor         , top, bottom, RGB_BLUE  );
+  // pulse ? RGB_GREEN : RGB_BLUE
+  uint16_t slopeColor;
+  if (pulse){
+    if(pulseWasDetected){
+      slopeColor = RGB_GREEN;
+    }else{
+      slopeColor = rgb_conv(0,127,0);
+      // slopeColor = RGB_CYAN;
+    }
+  }else{
+    slopeColor = RGB_BLUE;
+  } 
+  plot     ( display, *x, threshold   * slopeFactor      , 4, top, bottom, RGB_GRAY );
+  plotSolid( display, *x, slope       * slopeFactor         , top, bottom, slopeColor );
   // plot ( display, *x, slope       * slopeFactor      , 4, top, bottom, RGB_BLUE  );
   plot     ( display, *x, measurement * measurementFactor, 4, top, bottom, RGB_RED   );
-  if(pulse){plot ( display, *x, actualTop, 20, top, bottom, RGB_GREEN );}
+  // if(pulse){plot ( display, *x, actualTop, 20, top, bottom, RGB_GREEN );}
+  // if(pulse){plot ( display, *x, 0, 20, top, bottom, RGB_GREEN );}
   (*x)++;
   if((*x)>=DISPLAY_HEIGHT) (*x)=0;
 }
@@ -171,18 +185,38 @@ float getSlope( float sample, float *previousSample ){
 void newMeasurement(){
 }
 
-void updateDisplay(float frequency, float measurement, display_t *display, FontxFile *fx){
+void updateDisplay(float frequency, float measurement, int timeDifference, display_t *display, FontxFile *fx){
   char string[MAX_SIZE];
-  uint8_t byte[] = "";
-    // sprintf(string, "%.0fB %.3fV %d\n", frequency, measurement, get_switch_state( SWITCH0 ));
-    // sprintf(string, "%.0fB %.3fV A%d T%.1f S%d\n", frequency, measurement, averagingSize, threshold, get_switch_state( SWITCH0 ));
-    sprintf(string, "%.0fB %.3fV A%d S%d\n", frequency, measurement, averagingSize, get_switch_state( SWITCH0 ));
-    for (int i = 0; i < 20; i++)
-    {
-      byte[i] = (uint8_t)string[i];
-    }
-    displayClearText( display, RGB_BLACK );
-    displayDrawString(display, fx, 0, 31, byte, RGB_WHITE);
+  // char string[15];
+  displayClearText( display, RGB_BLACK );
+  // uint8_t byte[] = "";
+  // sprintf(string, "%.0fB %.3fV %d\n", frequency, measurement, get_switch_state( SWITCH0 ));
+  // sprintf(string, "%.0fB %.3fV A%d T%.1f S%d\n", frequency, measurement, averagingSize, threshold, get_switch_state( SWITCH0 ));
+  // sprintf(string, "%.0fB %.3fV A%d S%d\n", frequency, measurement, averagingSize, get_switch_state( SWITCH0 ));
+  // for (int i = 0; i < 20; i++)
+  // {
+  //   byte[i] = (uint8_t)string[i];
+  // }
+  // displayDrawString(display, fx, 0, 31, byte, RGB_WHITE);
+  int x = 0;
+  int y = 15;
+  sprintf(string, "%.0fBPM\n", frequency);
+  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GREEN);
+  sprintf(string, "%.3fV\n", measurement);
+  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_RED);
+  sprintf(string, "%dms\n", timeDifference);
+  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GREEN);
+  sprintf(string, "%.2fHz\n", frequency/60);
+  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GREEN);
+
+  x = 0;
+  y = 31;
+  sprintf(string,   "A%d\n", averagingSize);
+  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_RED);
+  sprintf(string,   "S%d\n", get_switch_state( SWITCH0 ));
+  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_WHITE);
+  sprintf(string,   "T%.5f\n", threshold);
+  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GRAY);
 }
 
 // int softwareSchmittTrigger(float sample, int *schmittTriggerState, float lowerThreshold, float upperThreshold){
@@ -205,18 +239,20 @@ void displayPulse(){
   BEATLED = !BEATLED;
 }
 
-void pulseDetected(frequency_t frequencyValue){
+int pulseDetected(frequency_t frequencyValue){
   int *previousTime = frequencyValue.previousTime;
   int timeDifference = amountOfChangeInt(millis(), previousTime);
-  if (timeDifference<10) return;
+  if (timeDifference<200) return 0;
   float frequency = calculateFrequency(timeDifference);
   // printf("%f\n", frequency);
   // printf("times %d %d difference %d frequency %f\n", millis(), *previousTime, timeDifference, frequency);
   *frequencyValue.previousTime        = *previousTime;
+  *frequencyValue.timeDifference      = timeDifference;
   *frequencyValue.frequency = smoothener(frequency, *frequencyValue.frequency, 0.5);
   // *frequencyValue.frequency = frequency;
   // *frequencyValue.frequency = 0.0;
   displayPulse();
+  return 1;
 }
 
 void frequencyDetection(frequency_t frequencyValue, display_t *display){
@@ -230,8 +266,9 @@ void frequencyDetection(frequency_t frequencyValue, display_t *display){
 
   float measurement = getAverageMeasurement( pin, averagingSize );
   float slope = getSlope(measurement, previousMeasurement);
+  int pulseWasDetected = 0;
   if(slope>threshold)
-    pulseDetected(frequencyValue);
+    pulseWasDetected = pulseDetected(frequencyValue);
 
   //float sample, int *schmittTriggerState, float lowerThreshold, float upperThreshold, int *previousTime
   // if ((softwareSchmittTrigger(adc_read_channel(pin), schmittTriggerState, lowerThreshold, upperThreshold)||0)&&1){
@@ -239,16 +276,27 @@ void frequencyDetection(frequency_t frequencyValue, display_t *display){
   //   *frequencyValue.schmittTriggerState = *schmittTriggerState;
   // }
   // sensorGraph( display, &graphPosition, 0.5*(1+sin(0.1*millis())), 3*(1+sin(0.07*millis())), threshold );
-  sensorGraph( display, &graphPosition, measurement, slope, threshold );
+  sensorGraph( display, &graphPosition, measurement, slope, threshold, pulseWasDetected );
   *previousMeasurement = measurement;
+}
+
+void buttonInput(){
+  if (millis() % 10 != 0) return;
+  if (get_button_state(BUTTON0)){
+    threshold -= 0.00001;
+  }
+  if (get_button_state(BUTTON1)){
+    threshold += 0.00001;
+  }
 }
 
 void waitUntilSomeTimePassed(unsigned int *timeValue, unsigned int duration, frequency_t frequencyValue, display_t *display){
 // void waitUntilSomeTimePassed(unsigned int *timeValue, unsigned int duration){
   //duration is in milliseconds
     while(millis()-(*timeValue)<duration){
-        // printf("waiting %d...\n", millis()-(*timeValue));
+      // printf("waiting %d...\n", millis()-(*timeValue));
       frequencyDetection(frequencyValue, display);
+      buttonInput();
       // printf("%f",frequencyValue.lowerThreshold);
       if (get_button_state(exit_button) || get_button_state(reset_button)) break;
     }
@@ -386,7 +434,7 @@ void displayDrawStringReally(display_t *display, FontxFile *fx, uint16_t x, uint
 void valueTransmission( display_t *display, FontxFile *fx, unsigned int *timeValue, frequency_t frequencyValue){
   waitUntilSomeTimePassed(timeValue, 1000, frequencyValue, display);
   if (get_button_state(exit_button) || get_button_state(reset_button)) return;
-  updateDisplay(*(frequencyValue.frequency), *(frequencyValue.previousMeasurement),display, fx);
+  updateDisplay(*(frequencyValue.frequency), *(frequencyValue.previousMeasurement), *frequencyValue.timeDifference, display, fx);
   // threshold, 
   sendSignal( frequencyValue, display );
 }
@@ -448,11 +496,13 @@ int main(void)
   // const int thresholdTrimDown  = BUTTON3;
   float frequency = 0;
   float previousMeasurement = 0;
+  int timeDifference = 0;
 
   frequency_t frequencyValue;
   frequencyValue.sample              = 0;
   // frequencyValue.schmittTriggerState = &schmittTriggerState;
   frequencyValue.previousTime        = &previousTime;
+  frequencyValue.timeDifference      = &timeDifference;
   frequencyValue.pin                 = pin;
   frequencyValue.frequency           = &frequency;
   frequencyValue.previousMeasurement = &previousMeasurement;
