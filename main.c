@@ -126,7 +126,7 @@ void waitUntilSomeTimePassed(unsigned int *timeValue, unsigned int duration, fre
         // printf("waiting %d...\n", millis()-(*timeValue));
       frequencyDetection(frequencyValue);
       // printf("%f",frequencyValue.lowerThreshold);
-      // if (get_button_state(exit_button) || get_button_state(reset_button)) break;
+      if (get_button_state(exit_button) || get_button_state(reset_button)) break;
     }
     *timeValue=millis();
 }
@@ -144,7 +144,7 @@ float float_max(float a, float b){
 
 void sendSignal(unsigned int *timeValue, frequency_t frequencyValue, float threshold, display_t *display, FontxFile *fx){
   waitUntilSomeTimePassed(timeValue, 1000, frequencyValue);
-  // if (get_button_state(exit_button) || get_button_state(reset_button)) return;
+  if (get_button_state(exit_button) || get_button_state(reset_button)) return;
   updateDisplay(*(frequencyValue.frequency), threshold, display, fx);
   char string[MAX_SIZE];
   uint8_t byte[] = "";
