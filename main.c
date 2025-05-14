@@ -23,6 +23,9 @@ typedef struct frequency2_t{
   float *frequency;
 } frequency_t;
 
+
+//U T I L I T Y
+
 int millis(){
   //"time_t" is a 32 bit int just like "int"
   return clock()*1000 / CLOCKS_PER_SEC;
@@ -57,6 +60,9 @@ float average2(float v1, float v2){
 //     *timeValue=millis();
 // }
 
+
+//G R A P H I C S
+
 void plot(display_t *display, uint16_t x, uint16_t y, uint16_t height, uint16_t top, uint16_t bottom, uint16_t color){
   uint16_t pointTop    = fmax(top   , top+y-0.5*height);
   uint16_t pointBottom = fmin(bottom, top+y+0.5*height);
@@ -86,10 +92,19 @@ float addToAverage( float value, int *count, float *average ){
   return *average;
 }
 
-float getAverageMeasurement(){
-  //smoothen()
-  //average()
-  return 0;
+float getAverageMeasurement( adc_channel_t pin, int totalCount ){
+  float average = 0;
+  int count     = 0;
+  for( int i=0; i<totalCount; i++ ){
+    addToAverage( adc_read_channel(pin), &count, &average );
+  }
+  return average;
+}
+
+float float_max(float a, float b){
+  if (a>=b)
+    return a;
+  return b;
 }
 
 float getSlope(){
@@ -137,28 +152,39 @@ int softwareSchmittTrigger(float sample, int *schmittTriggerState, float lowerTh
   return 0;
 }
 
+void displayPulse(){
+  printf("PULSE!\n");
+  green_led_onoff(2,BEATLED);
+  BEATLED = !BEATLED;
+}
+
+void pulseDetected(frequency_t frequencyValue){
+  int *previousTime = frequencyValue.previousTime;
+  displayPulse();
+  int timeDifference = amountOfChangeInt(millis(), previousTime);
+  float frequency = calculateFrequency(timeDifference);
+  // printf("%f\n", frequency);
+  // printf("times %d %d difference %d frequency %f\n", millis(), *previousTime, timeDifference, frequency);
+  *frequencyValue.previousTime        = *previousTime;
+  *frequencyValue.frequency = smoothener(frequency, *frequencyValue.frequency, 0.5);
+  // *frequencyValue.frequency = frequency;
+  // *frequencyValue.frequency = 0.0;
+}
+
 void frequencyDetection(frequency_t frequencyValue, display_t *display){
   // return;
   // float sample = frequencyValue.sample;
   int *schmittTriggerState = frequencyValue.schmittTriggerState;
   float lowerThreshold = frequencyValue.lowerThreshold;
   float upperThreshold = frequencyValue.upperThreshold;
-  int *previousTime = frequencyValue.previousTime;
   adc_channel_t pin = frequencyValue.pin;
+
+  //getAverageMeasurement( pin, 100 );
+
   //float sample, int *schmittTriggerState, float lowerThreshold, float upperThreshold, int *previousTime
   if ((softwareSchmittTrigger(adc_read_channel(pin), schmittTriggerState, lowerThreshold, upperThreshold)||0)&&1){
-    printf("PULSE!\n");
-    green_led_onoff(2,BEATLED);
-    BEATLED = !BEATLED;
-    int timeDifference = amountOfChangeInt(millis(), previousTime);
-    float frequency = calculateFrequency(timeDifference);
-    // printf("%f\n", frequency);
-    // printf("times %d %d difference %d frequency %f\n", millis(), *previousTime, timeDifference, frequency);
+    pulseDetected(frequencyValue);
     *frequencyValue.schmittTriggerState = *schmittTriggerState;
-    *frequencyValue.previousTime        = *previousTime;
-    *frequencyValue.frequency = smoothener(frequency, *frequencyValue.frequency, 0.5);
-    // *frequencyValue.frequency = frequency;
-    // *frequencyValue.frequency = 0.0;
   }
   sensorGraph( display, &graphPosition, 0, 1, 2 );
 }
@@ -180,16 +206,7 @@ void waitSomeTime(unsigned int duration, frequency_t frequencyValue, display_t *
   waitUntilSomeTimePassed(&timeValue, duration, frequencyValue, display);
 }
 
-float float_max(float a, float b){
-  if (a>=b)
-    return a;
-  return b;
-}
-
-void sendSignal(unsigned int *timeValue, frequency_t frequencyValue, float threshold, display_t *display, FontxFile *fx){
-  waitUntilSomeTimePassed(timeValue, 1000, frequencyValue, display);
-  if (get_button_state(exit_button) || get_button_state(reset_button)) return;
-  updateDisplay(*(frequencyValue.frequency), threshold, display, fx);
+void sendSignal( frequency_t frequencyValue, display_t *display ){
   char string[MAX_SIZE];
   uint8_t byte[] = "";
   sprintf(string, "%.0fB", float_max(240,*(frequencyValue.frequency)));//fmax(240, )
@@ -313,7 +330,10 @@ void calibrateThresholds(display_t *display, FontxFile *fx, float *lowerThreshol
 }
 
 void valueTransmission(float threshold, display_t *display, FontxFile *fx, unsigned int *timeValue, frequency_t frequencyValue){
-  sendSignal(timeValue, frequencyValue, threshold, display, fx);
+  waitUntilSomeTimePassed(timeValue, 1000, frequencyValue, display);
+  if (get_button_state(exit_button) || get_button_state(reset_button)) return;
+  updateDisplay(*(frequencyValue.frequency), threshold, display, fx);
+  sendSignal( frequencyValue, display );
 }
 
 // void scheduler(float frequency, float threshold, display_t *display, FontxFile *fx, unsigned int *timeValue, frequency_t frequencyValue){
@@ -322,6 +342,12 @@ void valueTransmission(float threshold, display_t *display, FontxFile *fx, unsig
 //   // frequencyDetection();
 // }
 
+
+void clearAllIndicators( display_t *display ){
+  for(int i=0; i<3; i++)
+    green_led_off(i);
+  displayFillScreen( display, RGB_BLACK );
+}
  
 
 int main(void)
@@ -409,9 +435,7 @@ int main(void)
     //float frequency, float threshold, display_t *display, FontxFile *fx, unsigned int *timeValue, frequency_t frequencyValue
     valueTransmission(threshold, &display, fx, &timeValue, frequencyValue);
     if (get_button_state(exit_button)){
-      for(int i=0; i<3; i++)
-        green_led_off(i);
-      displayFillScreen(&display, RGB_BLACK);
+      clearAllIndicators( &display );
       break;
     }
     // if ((softwareSchmittTrigger(adc_read_channel(pin), &schmittTriggerState, lowerThreshold, upperThreshold)||0)&&1){
