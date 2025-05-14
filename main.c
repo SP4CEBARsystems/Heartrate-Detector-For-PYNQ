@@ -215,6 +215,22 @@ float getSlope( float sample, float *previousSample ){
 void newMeasurement(){
 }
 
+void drawWordFloat( char *format, float value, uint16_t color, int y, char *string, int *charLength, int *x, display_t *display, FontxFile *fx ){
+  sprintf(string, format, value);
+  // printf("p0 %d\n", strlen(string));
+  (*charLength)+=strlen(string);
+  if((*charLength)>29) return;
+  *x = displayDrawString( display, fx, *x, y, (uint8_t *)string, color );
+}
+
+void drawWordInt( char *format, int value, uint16_t color, int y, char *string, int *charLength, int *x, display_t *display, FontxFile *fx ){
+  sprintf(string, format, value);
+  // printf("p0 %d\n", strlen(string));
+  (*charLength)+=strlen(string);
+  if((*charLength)>29) return;
+  *x = displayDrawString( display, fx, *x, y, (uint8_t *)string, color );
+}
+
 void updateDisplay(float frequency, float measurement, int timeDifference, display_t *display, FontxFile *fx){
   // return;
   char string[MAX_SIZE];
@@ -231,25 +247,65 @@ void updateDisplay(float frequency, float measurement, int timeDifference, displ
   // displayDrawString(display, fx, 0, 31, byte, RGB_WHITE);
   int x = 0;
   int y = 15;
-  sprintf(string, "%.0fBPM\n", frequency);
-  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GREEN);
-  sprintf(string, "%.3fV\n", measurement);
-  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_RED);
-  sprintf(string, "%dms\n", timeDifference);
-  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GREEN);
-  sprintf(string, "%.2fHz\n", frequency/60);
-  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GREEN);
+  int charLength = 0;
+
+  drawWordFloat( "%.0fBPM\n", frequency     , RGB_GREEN, y, string, &charLength, &x, display, fx );
+  drawWordFloat( "%.3fV\n"  , measurement   , RGB_RED  , y, string, &charLength, &x, display, fx );
+  drawWordInt  ( "%dms\n"   , timeDifference, RGB_GREEN, y, string, &charLength, &x, display, fx );
+  drawWordFloat( "%.2fHz\n" , frequency/60  , RGB_GREEN, y, string, &charLength, &x, display, fx );
+
+  // sprintf(string, "%.0fBPM\n", frequency);
+  // // printf("p0 %d\n", strlen(string));
+  // charLength+=strlen(string);
+  // if(charLength>29) return;
+  // x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GREEN);
+
+  // sprintf(string, "%.3fV\n", measurement);
+  // // printf("p1 %d\n", strlen(string));
+  // charLength+=strlen(string);
+  // if(charLength>29) return;
+  // x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_RED);
+
+  // sprintf(string, "%dms\n", timeDifference);
+  // // printf("p2 %d\n", strlen(string));
+  // charLength+=strlen(string);
+  // if(charLength>29) return;
+  // x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GREEN);
+
+  // sprintf(string, "%.2fHz\n", frequency/60);
+  // // printf("p3 %d\n", strlen(string));
+  // charLength+=strlen(string);
+  // if(charLength>29) return;
+  // x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GREEN);
 
   x = 0;
   y = 31;
-  sprintf(string,   "A%d\n", averagingSize);
-  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_RED);
-  sprintf(string,   "S%d\n", get_switch_state( SWITCH0 ));
-  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_WHITE);
-  sprintf(string,   "T%.5f\n", threshold);
-  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GRAY);
-  sprintf(string,   "%.1fs\n", millis()*0.001);
-  x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_WHITE);
+  charLength = 0;
+
+  drawWordInt  ( "A%d\n"  , averagingSize              , RGB_RED  , y, string, &charLength, &x, display, fx );
+  drawWordInt  ( "S%d\n"  , get_switch_state( SWITCH0 ), RGB_WHITE, y, string, &charLength, &x, display, fx );
+  drawWordFloat( "T%.5f\n", threshold                  , RGB_GRAY , y, string, &charLength, &x, display, fx );
+  drawWordFloat( "%.1fs\n", millis()*0.001             , RGB_WHITE, y, string, &charLength, &x, display, fx );
+
+  // sprintf(string,   "A%d\n", averagingSize);
+  // charLength+=strlen(string);
+  // if(charLength>29) return;
+  // x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_RED);
+
+  // sprintf(string,   "S%d\n", get_switch_state( SWITCH0 ));
+  // charLength+=strlen(string);
+  // if(charLength>29) return;
+  // x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_WHITE);
+
+  // sprintf(string,   "T%.5f\n", threshold);
+  // charLength+=strlen(string);
+  // if(charLength>29) return;
+  // x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_GRAY);
+
+  // sprintf(string,   "%.1fs\n", millis()*0.001);
+  // charLength+=strlen(string);
+  // if(charLength>29) return;
+  // x = displayDrawString(display, fx, x, y, (uint8_t *)string, RGB_WHITE);
 }
 
 // int softwareSchmittTrigger(float sample, int *schmittTriggerState, float lowerThreshold, float upperThreshold){
