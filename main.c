@@ -486,7 +486,6 @@ void waitSomeTime(unsigned int duration, frequency_t frequencyValue, display_t *
 
 void sendSignal( frequency_t frequencyValue, display_t *display ){
   // return;
-  uart_reset_fifos(UART0);
   char string[MAX_SIZE];
   uint8_t byte[MAX_SIZE] = "";
   // printf("freq%.0f\n", *(frequencyValue.frequency));
@@ -522,6 +521,8 @@ void sendSignal( frequency_t frequencyValue, display_t *display ){
   }
   printf("\n");
   green_led_off(3);
+  uart_reset_fifos(UART0);
+  // uart_reset_fifos(UART0);
 
   // for (int i = 0; byte[i] != '\0'; i++)
   // {
@@ -671,6 +672,7 @@ int main(void)
   // switchbox_set_pin(IO_PMODA1, SWB_UART0_TX);
   switchbox_set_pin(IO_AR13, SWB_UART0_TX);
   uart_init(UART0);
+  uart_reset_fifos(UART0);
   display_t display;
   display_init(&display);
   displayClearText(&display, RGB_BLACK);
