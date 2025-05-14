@@ -81,8 +81,8 @@ void sensorGraph( display_t *display, int *x, float measurement, float slope, fl
   uint16_t top = 32;
   uint16_t bottom = DISPLAY_HEIGHT-1;
   uint16_t range = bottom - top;
-  displayDrawFillRect ( display, *x, top, *x, bottom, RGB_BLACK );
-  float slopeFactor = range/10;
+  displayDrawFillRect ( display, *x, top, *x, bottom, slope>threshold ? RGB_WHITE : RGB_BLACK );
+  float slopeFactor = 20 * range/10;
   float measurementFactor = range/3.3;
   plot ( display, *x, threshold   * slopeFactor      , 4, top, bottom, RGB_WHITE );
   plot ( display, *x, slope       * slopeFactor      , 4, top, bottom, RGB_BLUE  );
@@ -92,10 +92,9 @@ void sensorGraph( display_t *display, int *x, float measurement, float slope, fl
 }
 
 float addToAverage( float value, int *count, float *average ){
-  // (*count)++;
-  if (*count<0) return *average;
-  // (*average) += (value-(*average)) / (*count);
-  *average += (value-(*average)) / ((*count)++);
+  (*count)++;
+  if (*count==0) return *average;
+  (*average) += (value-(*average)) / (*count);
   return *average;
 }
 
@@ -103,8 +102,9 @@ float getAverageMeasurement( adc_channel_t pin, int totalCount ){
   float average = 0;
   int count     = 0;
   for( int i=0; i<totalCount; i++ ){
+    if(pin){}//pin is used
     // addToAverage( adc_read_channel(pin), &count, &average );
-    addToAverage( adc_read_channel(pin), &count, &average );
+    addToAverage( 1 +0.5*((sin(0.0007*millis()))>0.5) +0.1*(sin(0.0035*millis())) +0.5*(sin(2000*millis())) +0.2*(sin(11111*millis())), &count, &average );
   }
   return average;
 }
@@ -115,8 +115,20 @@ float float_max(float a, float b){
   return b;
 }
 
-float getSlope(){
-  return 0;
+float amountOfChange(float value, float *previousValue){
+  float difference = value-(*previousValue);
+  (*previousValue) = value;
+  return difference;
+}
+
+int amountOfChangeInt(int value, int *previousValue){
+  int difference = value-(*previousValue);
+  (*previousValue) = value;
+  return difference;
+}
+
+float getSlope( float sample, float *previousSample ){
+  return amountOfChange( sample, previousSample );
 }
 
 void newMeasurement(){
@@ -132,18 +144,6 @@ void updateDisplay(float frequency, float measurement, display_t *display, Fontx
     }
     displayClearText( display, RGB_BLACK );
     displayDrawString(display, fx, 0, 31, byte, RGB_WHITE);
-}
-
-// float amountOfChange(float value, float *previousValue){
-//   float difference = value-(*previousValue);
-//   (*previousValue) = value;
-//   return difference;
-// }
-
-int amountOfChangeInt(int value, int *previousValue){
-  int difference = value-(*previousValue);
-  (*previousValue) = value;
-  return difference;
 }
 
 // int softwareSchmittTrigger(float sample, int *schmittTriggerState, float lowerThreshold, float upperThreshold){
@@ -188,8 +188,8 @@ void frequencyDetection(frequency_t frequencyValue, display_t *display){
   float *previousMeasurement = frequencyValue.previousMeasurement;
   adc_channel_t pin = frequencyValue.pin;
 
-  float threshold = 5;
-  float measurement = getAverageMeasurement( pin, 100 );
+  float threshold = .25;
+  float measurement = getAverageMeasurement( pin, 1500 );
   float slope = getSlope(measurement, previousMeasurement);
   if(slope>threshold)
     pulseDetected(frequencyValue);
